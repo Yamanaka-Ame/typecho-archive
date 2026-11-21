@@ -1,0 +1,34 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# ---- 运行产物 ----
+demo.dat
+export/
+*.log
+.tarch_tmp/
+runtime/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 本地私有数据（切勿提交）----
+# 备份文件、源码包、导出的报告与数据库都含真实站点内容，
+# 包括邮箱、IP 和密码哈希，请放在仓库之外。
+*.dat
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.db
+*.sqlite

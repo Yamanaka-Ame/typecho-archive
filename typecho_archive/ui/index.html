@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typecho 归档台</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">
+      <span class="brand-mark">归</span>
+      <span class="brand-text">
+        <b>Typecho 归档台</b>
+        <em id="brandSub">载入中…</em>
+      </span>
+    </div>
+    <nav id="nav" class="nav"></nav>
+    <div class="side-foot">
+      <button class="ghost" id="themeBtn" title="切换明暗">◐ 明暗</button>
+      <span id="sideMeta" class="side-meta"></span>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div class="top-left">
+        <h1 id="viewTitle">概览</h1>
+        <p id="viewSub"></p>
+      </div>
+      <div class="top-right">
+        <label class="search">
+          <span class="ico">⌕</span>
+          <input id="q" type="search" placeholder="搜索标题、正文、作者、分类、标签…" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+      </div>
+    </header>
+    <div class="body" id="body"><div class="loading">正在解析…</div></div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

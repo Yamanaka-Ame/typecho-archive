@@ -1,0 +1,24 @@
+# 批处理必须是 CRLF：写成 LF 会让 cmd 错切命令行，中文路径会被毁掉
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# VBS 是 UTF-16 LE 带 BOM（WScript 按 ANSI 读会报「未结束的字符串常量」），
+# 当作二进制处理，避免被换行转换或自动识别成文本
+*.vbs binary
+
+# 图片与演示数据不做文本转换
+*.png binary
+*.ico binary
+*.dat binary
+*.db binary
+
+# 其余文本统一 LF
+*.py text eol=lf
+*.md text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.toml text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+LICENSE text eol=lf

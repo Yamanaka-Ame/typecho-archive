@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "typecho-archive"
+dynamic = ["version"]
+description = "Read Typecho .dat backups and site archives: browse, verify, and export."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Mount Rain" }]
+keywords = ["typecho", "backup", "archive", "blog", "markdown", "sqlite"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Win32 (MS Windows)",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Database",
+  "Topic :: Desktop Environment",
+  "Topic :: Text Processing :: Markup",
+]
+
+[project.scripts]
+typecho-archive = "typecho_archive.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Yamanaka-Ame/typecho-archive"
+
+[tool.setuptools]
+packages = ["typecho_archive"]
+
+[tool.setuptools.dynamic]
+version = { attr = "typecho_archive.__version__" }
+
+[tool.setuptools.package-data]
+typecho_archive = ["ui/*"]
