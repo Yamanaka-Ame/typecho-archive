@@ -30,7 +30,7 @@ including a minimal parser you can copy.
 |---|---|
 | **Auto-detects input** | `.dat`, `.tar.gz`, `.tar`, `.zip`, an extracted directory, or `.db`. Drag either file — they do not need to come in pairs |
 | **Browse & search** | Posts, pages, attachments, comments, categories, tags, users; full-text search with filters |
-| **Renders content** | Built-in Markdown renderer; raw HTML inside `!!!` fences renders as real components, with `<style>` scoped per block |
+| **Renders content** | Built-in Markdown renderer; raw HTML inside `!!!` fences renders as real components, with `<style>` injected under a `.prose` scope |
 | **Single-article export** | Save the open article as a self-contained HTML (images inlined, comments included, works offline) or as Markdown with front matter |
 | **Integrity report** | Per-record md5, footer magic, orphan comments, duplicate slugs, missing uploads, stale category counters — each with concrete ids |
 | **Two-way diff** | Give both a backup and a source archive and it lists, per primary key, what exists only on one side |
@@ -155,9 +155,11 @@ HTML. The frontend only looks at `window.__MODE__`, so the offline report and th
 the same.
 
 **Embedded components render — without leaking.** Many people drop raw HTML into posts behind a
-`!!!` marker (copyright cards, tables of contents, custom tables). Those blocks are rendered as
-HTML rather than escaped, and every rule in their `<style>` gets a `.raw-N` prefix so a global
-`table { }` cannot restyle the rest of the app. `<script>` and inline handlers are stripped.
+`!!!` marker (copyright cards, tables of contents, custom tables), sometimes with a `<style>`
+block that later components rely on. Those blocks are rendered as HTML rather than escaped, and
+any `<style>` they contain is collected and injected once for the whole article with every rule
+prefixed by `.prose` — so a global `table { }` cannot restyle the rest of the app. `<script>` and
+inline handlers are stripped.
 
 ## Privacy
 

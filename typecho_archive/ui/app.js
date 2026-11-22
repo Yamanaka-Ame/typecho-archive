@@ -93,26 +93,43 @@
     return out;
   }
 
-  let rawBlockSeq = 0;
-
   /**
    * 渲染一段原生 HTML（`!!!` 围栏里、或整篇就是 HTML 的文章）。
    *
    * - `<script>` 一律去掉：不让文章里的脚本动到界面；
-   * - `<style>` 保留，但加作用域前缀，避免 `table { }` 这类全局规则影响别处；
+   * - `<style>` 不放在块内，而是收集起来整篇统一注入，作用域限定在 `.prose`。
+   *   作者常把样式写在文章开头的一个 `!!!` 块里、再用到后面的组件上，
+   *   若按块隔离，后面的组件根本吃不到这些规则；
    * - 不像 Markdown 文本那样转义标签，组件才能真正渲染出来。
    */
+  let articleStyles = [];
+
+  const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+    'link', 'meta', 'param', 'source', 'track', 'wbr']);
+
+  /** 估算一行 HTML 的标签嵌套增量（开标签 +1，闭标签 -1，自闭合与空元素不计）。 */
+  function htmlDepth(text) {
+    let depth = 0;
+    const re = /<(\/?)([a-zA-Z][\w:-]*)([^>]*)>/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const name = m[2].toLowerCase();
+      if (VOID_TAGS.has(name)) continue;
+      if (m[1] === '/') { depth -= 1; continue; }
+      if (/\/\s*$/.test(m[3])) continue;
+      depth += 1;
+    }
+    return depth;
+  }
+
   function renderRawBlock(html) {
     const text = String(html || '');
     if (!/<[a-zA-Z]/.test(text)) {
       return `<p>${inlineMd(text.trim()).replace(/\n/g, '<br>')}</p>`;
     }
-    rawBlockSeq += 1;
-    const cls = `raw-${rawBlockSeq}`;
-    const styles = [];
     let body = text.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi, (m, attrs, inner) => {
-      const scoped = scopeCss(inner, '.' + cls);
-      if (scoped.trim()) styles.push(scoped);
+      const scoped = scopeCss(inner, '.prose');
+      if (scoped.trim()) articleStyles.push(scoped);
       return '';
     });
     body = body
@@ -121,8 +138,9 @@
       .replace(/javascript:/gi, '')
       // 没配对的 <style> 没法加作用域，直接丢掉，免得漏进全局
       .replace(/<style\b[\s\S]*$/i, '');
-    const styleTag = styles.length ? `<style>${styles.join('\n')}</style>` : '';
-    return `<div class="raw-block ${cls}">${styleTag}${body}</div>`;
+    // 只剩样式的围栏块不必留个空 div
+    if (!body.trim()) return '';
+    return `<div class="raw-block">${body}</div>`;
   }
 
   function inlineMd(s) {
@@ -271,17 +289,27 @@
         out.push('<ol>' + buf.map(t => `<li>${inlineMd(t)}</li>`).join('') + '</ol>');
         continue;
       }
-      // 原生 HTML 块：以 <tag 或 </tag 开头，连续到空行为止
+      // 原生 HTML 块：以 <tag 或 </tag 开头。
+      // 按标签嵌套深度收集到真正闭合为止——真实文章里的 <div><dl>…</dl></div>
+      // 中间常夹着空行，只靠「连续到空行为止」会被切碎。
       if (/^\s*<\/?[a-zA-Z]/.test(line)) {
-        const buf = [];
-        while (i < lines.length && !/^\s*$/.test(lines[i])) buf.push(lines[i++]);
+        const buf = [lines[i++]];
+        let depth = Math.max(0, htmlDepth(buf[0]));
+        while (i < lines.length && buf.length < 400) {
+          if (depth <= 0 && /^\s*$/.test(lines[i])) break;
+          buf.push(lines[i]);
+          depth = Math.max(0, depth + htmlDepth(lines[i]));
+          i++;
+        }
         out.push(renderRawBlock(buf.join('\n')));
         continue;
       }
       // 段落
       const buf = [];
       while (i < lines.length && !/^\s*$/.test(lines[i]) &&
-        !/^\s*(#{1,6}\s|>|```|~~~|[-*+]\s|\d+[.)]\s)/.test(lines[i])) {
+        // 遇到下一种块的起始行就收尾；注意 <tag 也要算，否则紧跟其后的
+        // 原生 HTML 会被当成段落文字转义掉
+        !/^\s*(#{1,6}\s|>|```|~~~|[-*+]\s|\d+[.)]\s|<\/?[a-zA-Z]|!!!\s*$)/.test(lines[i])) {
         buf.push(lines[i++]);
       }
       // 兜底：上面的分支都没接住、但停止条件又命中时，必须把当前行吃掉。
@@ -297,8 +325,10 @@
       const meta = parseJson(post.text);
       return meta ? attachmentCard(post, meta) : `<p class="dim">该附件没有附加元数据。</p>`;
     }
-    if (post.isMarkdown) return md(post.text);
-    return renderRawBlock(String(post.text || ''));
+    articleStyles = [];
+    const html = post.isMarkdown ? md(post.text) : renderRawBlock(String(post.text || ''));
+    const styleTag = articleStyles.length ? `<style>${articleStyles.join('\n')}</style>` : '';
+    return styleTag + html;
   }
 
   function parseJson(t) {
