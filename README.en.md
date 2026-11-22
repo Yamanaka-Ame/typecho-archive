@@ -190,6 +190,20 @@ python -m unittest discover -s tests -v
 invalid input rejection, model stats, integrity, payload serialisation, SQLite export round-trip,
 Markdown export, static report generation. No real data required.
 
+### Render check (needs real data, optional)
+
+The Markdown renderer is hand-written and block boundaries are decided in several places — that
+has produced hangs, components rendered as source text, styles not applying, HTML blocks split by
+blank lines. Eyeballing one post cannot catch that class, so there is a browser-driven sweep:
+
+```bash
+python tools/render_check.py backup.dat -j 4
+```
+
+It renders every post in the archive through headless Edge and asserts: finishes within a timeout
+(no infinite loops), renders a title, no escaped block tags in the body, no leftover `!!!` markers,
+and every injected `<style>` rule is scoped. 245 posts take ~5 minutes.
+
 ## License
 
 [MIT](LICENSE)
