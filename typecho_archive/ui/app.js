@@ -38,7 +38,6 @@
   }
 
   /* ----------------------------------------------------------- Markdown */
-  const BLOCK_TAGS = /^(div|p|section|article|figure|figcaption|iframe|video|audio|table|thead|tbody|tr|td|th|ul|ol|li|blockquote|pre|h[1-6]|img|hr|br|span|a|center|font|strong|em|b|i|u|s|del|ins|sup|sub|code|dl|dt|dd|details|summary|picture|source)\b/i;
 
   function sanitize(html) {
     return html
@@ -46,6 +45,84 @@
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
       .replace(/javascript:/gi, '');
+  }
+
+  /** 整篇文章的最后一道清洗：这里不能删 <style> —— 原生 HTML 组件的样式要靠它。 */
+  function sanitizeOutput(html) {
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/javascript:/gi, '');
+  }
+
+  /**
+   * 把一段 CSS 里的每个选择器都加上作用域前缀。
+   *
+   * 真实文章里有 `table { }` / `th, td { }` 这种全局元素选择器，
+   * 直接注入会把整个界面一起改掉，所以必须限定在组件自己的容器里。
+   * @media / @supports 递归进去处理；@keyframes / @font-face 原样保留。
+   */
+  function scopeCss(css, prefix) {
+    const clean = String(css).replace(/\/\*[\s\S]*?\*\//g, '');
+    let out = '';
+    let i = 0;
+    while (i < clean.length) {
+      const open = clean.indexOf('{', i);
+      if (open < 0) break;
+      const head = clean.slice(i, open).trim();
+      let depth = 1;
+      let j = open + 1;
+      while (j < clean.length && depth) {
+        if (clean[j] === '{') depth++;
+        else if (clean[j] === '}') depth--;
+        j++;
+      }
+      const body = clean.slice(open + 1, j - 1);
+      if (!head) { i = j; continue; }
+      if (/^@(media|supports|layer|container|document)/i.test(head)) {
+        out += `${head}{${scopeCss(body, prefix)}}`;
+      } else if (head.startsWith('@')) {
+        out += `${head}{${body}}`;
+      } else {
+        const sels = head.split(',').map(s => s.trim()).filter(Boolean)
+          .map(s => `${prefix} ${s}`);
+        out += `${sels.join(',')}{${body}}`;
+      }
+      i = j;
+    }
+    return out;
+  }
+
+  let rawBlockSeq = 0;
+
+  /**
+   * 渲染一段原生 HTML（`!!!` 围栏里、或整篇就是 HTML 的文章）。
+   *
+   * - `<script>` 一律去掉：不让文章里的脚本动到界面；
+   * - `<style>` 保留，但加作用域前缀，避免 `table { }` 这类全局规则影响别处；
+   * - 不像 Markdown 文本那样转义标签，组件才能真正渲染出来。
+   */
+  function renderRawBlock(html) {
+    const text = String(html || '');
+    if (!/<[a-zA-Z]/.test(text)) {
+      return `<p>${inlineMd(text.trim()).replace(/\n/g, '<br>')}</p>`;
+    }
+    rawBlockSeq += 1;
+    const cls = `raw-${rawBlockSeq}`;
+    const styles = [];
+    let body = text.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi, (m, attrs, inner) => {
+      const scoped = scopeCss(inner, '.' + cls);
+      if (scoped.trim()) styles.push(scoped);
+      return '';
+    });
+    body = body
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/javascript:/gi, '')
+      // 没配对的 <style> 没法加作用域，直接丢掉，免得漏进全局
+      .replace(/<style\b[\s\S]*$/i, '');
+    const styleTag = styles.length ? `<style>${styles.join('\n')}</style>` : '';
+    return `<div class="raw-block ${cls}">${styleTag}${body}</div>`;
   }
 
   function inlineMd(s) {
@@ -106,8 +183,19 @@
         continue;
       }
 
-      // 作者用作分隔的裸 !!!
-      if (/^\s*!!!\s*$/.test(line)) { i++; continue; }
+      // 代码块（必须最先判断：代码块里的 !!! 或 <div> 都是纯文本）
+      const fence = line.match(/^\s*(```|~~~)\s*([\w+-]*)\s*$/);
+      if (fence) {
+        const mark = fence[1];
+        i++;
+        const buf = [];
+        while (i < lines.length && !new RegExp('^\\s*' + mark).test(lines[i])) buf.push(lines[i++]);
+        i++;
+        out.push(`<pre><code>${esc(buf.join('\n'))}</code></pre>`);
+        continue;
+      }
+      // 分割线
+      if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { out.push('<hr>'); i++; continue; }
 
       // 遮罩遮罩：<!--SPOILER … -->
       if (/^\s*<!--\s*SPOILER/i.test(line)) {
@@ -125,19 +213,28 @@
         continue;
       }
 
-      // 代码块
-      const fence = line.match(/^\s*(```|~~~)\s*([\w+-]*)\s*$/);
-      if (fence) {
-        const mark = fence[1];
-        i++;
-        const buf = [];
-        while (i < lines.length && !new RegExp('^\\s*' + mark).test(lines[i])) buf.push(lines[i++]);
-        i++;
-        out.push(`<pre><code>${esc(buf.join('\n'))}</code></pre>`);
+      // `!!!` 是作者标记「下面这段是原生 HTML」的分隔符。
+      // 成对时取两行之间的内容；不成对时只取紧随其后的连续非空行，
+      // 免得把后面的正文一起吞掉。
+      if (/^\s*!!!\s*$/.test(line)) {
+        const start = i + 1;
+        let close = -1;
+        for (let k = start; k < lines.length; k++) {
+          if (/^\s*!!!\s*$/.test(lines[k])) { close = k; break; }
+        }
+        let end;
+        if (close >= 0) {
+          end = close;
+          i = close + 1;
+        } else {
+          end = start;
+          while (end < lines.length && !/^\s*$/.test(lines[end])) end++;
+          i = end;
+        }
+        const block = lines.slice(start, end).join('\n');
+        if (block.trim()) out.push(renderRawBlock(block));
         continue;
       }
-      // 分割线
-      if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { out.push('<hr>'); i++; continue; }
       // 标题（缩进多少都认：真实文章里经常整段缩进）
       const h = line.match(/^\s*(#{1,6})\s+(.*)$/);
       if (h) { const n = h[1].length; out.push(`<h${n}>${inlineMd(h[2])}</h${n}>`); i++; continue; }
@@ -174,11 +271,11 @@
         out.push('<ol>' + buf.map(t => `<li>${inlineMd(t)}</li>`).join('') + '</ol>');
         continue;
       }
-      // 原始 HTML 块
-      if (/^\s*<[a-z!/]/i.test(line) && BLOCK_TAGS.test(line.trim().replace(/^</, ''))) {
+      // 原生 HTML 块：以 <tag 或 </tag 开头，连续到空行为止
+      if (/^\s*<\/?[a-zA-Z]/.test(line)) {
         const buf = [];
         while (i < lines.length && !/^\s*$/.test(lines[i])) buf.push(lines[i++]);
-        out.push(sanitize(buf.join('\n')));
+        out.push(renderRawBlock(buf.join('\n')));
         continue;
       }
       // 段落
@@ -192,7 +289,7 @@
       if (!buf.length) buf.push(lines[i++]);
       out.push(`<p>${inlineMd(buf.join('\n')).replace(/\n/g, '<br>')}</p>`);
     }
-    return sanitize(out.join('\n'));
+    return sanitizeOutput(out.join('\n'));
   }
 
   function renderBody(post) {
@@ -201,7 +298,7 @@
       return meta ? attachmentCard(post, meta) : `<p class="dim">该附件没有附加元数据。</p>`;
     }
     if (post.isMarkdown) return md(post.text);
-    return sanitize(String(post.text || ''));
+    return renderRawBlock(String(post.text || ''));
   }
 
   function parseJson(t) {
@@ -505,6 +602,7 @@ h1 { font-size: 30px; line-height: 1.36; margin: 0 0 10px; letter-spacing: -.3px
 .note-h { font-size: 12px; font-weight: 600; margin-bottom: 3px; color: #5a5349; }
 .note-b { font-size: 14px; color: #5a5349; }
 .spoiler { border: 1px dashed #ddd7c9; border-radius: 8px; padding: 10px 14px; background: #efece4; }
+.raw-block { margin: 1.2em 0; }
 .sp-body { margin-top: 8px; font-size: 13.5px; color: #5a5349; }
 .comments { margin-top: 56px; border-top: 1px solid #e2ddd1; padding-top: 24px; }
 .comments h2 { font-size: 16px; margin: 0 0 14px; }

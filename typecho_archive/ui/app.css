@@ -78,12 +78,12 @@ button, input, select { font: inherit; color: inherit; }
   transition: background .12s, color .12s;
 }
 .nav-item:hover { background: #26241f; color: #f0ebe0; }
-.nav-item.on { background: var(--accent-soft); color: #fff; }
-[data-theme="dark"] .nav-item.on { background: #33291b; }
+/* 侧栏始终是深色，选中态也用深色底 + 左侧橙条。
+   之前用 accent-soft 做底配白字，在亮色主题下就是白字奶油底，几乎看不见。 */
+.nav-item.on { background: #3a2c1a; color: #fbf6ee; box-shadow: inset 2px 0 0 var(--accent); }
 .nav-item .ico { width: 15px; text-align: center; opacity: .85; font-size: 12px; }
 .nav-item .n { margin-left: auto; font-size: 11px; color: var(--side-dim); font-variant-numeric: tabular-nums; }
-.nav-item.on .n { color: var(--accent); }
-[data-theme="dark"] .nav-item.on .n { color: var(--accent); }
+.nav-item.on .n { color: #e0a264; }
 .side-foot { padding: 10px 16px 0; display: flex; align-items: center; gap: 8px; border-top: 1px solid #2a2721; }
 .side-meta { font-size: 10.5px; color: var(--side-dim); margin-left: auto; }
 .ghost {
@@ -194,6 +194,10 @@ button, input, select { font: inherit; color: inherit; }
 .prose th, .prose td { border: 1px solid var(--line); padding: 5px 10px; }
 .prose th { background: var(--bg-soft); }
 .prose iframe { max-width: 100%; border: 0; border-radius: 8px; }
+/* 文章里内嵌的原生 HTML 组件 */
+.raw-block { margin: 1.2em 0; }
+.raw-block:first-child { margin-top: 0; }
+.raw-block:last-child { margin-bottom: 0; }
 
 /* ---------------- 通用块 ---------------- */
 .page { flex: 1; min-width: 0; overflow-y: auto; height: 100%; }
