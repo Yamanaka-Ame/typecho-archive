@@ -138,8 +138,8 @@
       }
       // 分割线
       if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { out.push('<hr>'); i++; continue; }
-      // 标题
-      const h = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+      // 标题（缩进多少都认：真实文章里经常整段缩进）
+      const h = line.match(/^\s*(#{1,6})\s+(.*)$/);
       if (h) { const n = h[1].length; out.push(`<h${n}>${inlineMd(h[2])}</h${n}>`); i++; continue; }
       // 引用
       if (/^\s*>\s?/.test(line)) {
@@ -161,16 +161,16 @@
         continue;
       }
       // 无序列表
-      if (/^\s{0,3}[-*+]\s+/.test(line)) {
+      if (/^\s*[-*+]\s+/.test(line)) {
         const buf = [];
-        while (i < lines.length && /^\s{0,3}[-*+]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s{0,3}[-*+]\s+/, ''));
+        while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s*[-*+]\s+/, ''));
         out.push('<ul>' + buf.map(t => `<li>${inlineMd(t)}</li>`).join('') + '</ul>');
         continue;
       }
       // 有序列表
-      if (/^\s{0,3}\d+[.)]\s+/.test(line)) {
+      if (/^\s*\d+[.)]\s+/.test(line)) {
         const buf = [];
-        while (i < lines.length && /^\s{0,3}\d+[.)]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s{0,3}\d+[.)]\s+/, ''));
+        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) buf.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ''));
         out.push('<ol>' + buf.map(t => `<li>${inlineMd(t)}</li>`).join('') + '</ol>');
         continue;
       }
@@ -187,6 +187,9 @@
         !/^\s*(#{1,6}\s|>|```|~~~|[-*+]\s|\d+[.)]\s)/.test(lines[i])) {
         buf.push(lines[i++]);
       }
+      // 兜底：上面的分支都没接住、但停止条件又命中时，必须把当前行吃掉。
+      // 否则 i 不前进，整个渲染会卡死在这里（这是真发生过的死循环）。
+      if (!buf.length) buf.push(lines[i++]);
       out.push(`<p>${inlineMd(buf.join('\n')).replace(/\n/g, '<br>')}</p>`);
     }
     return sanitize(out.join('\n'));
