@@ -31,6 +31,7 @@ including a minimal parser you can copy.
 | **Auto-detects input** | `.dat`, `.tar.gz`, `.tar`, `.zip`, an extracted directory, or `.db`. Drag either file — they do not need to come in pairs |
 | **Browse & search** | Posts, pages, attachments, comments, categories, tags, users; full-text search with filters |
 | **Renders content** | Built-in Markdown renderer, including the Spoiler plugin's `[note]` blocks and spoiler syntax |
+| **Single-article export** | Save the open article as a self-contained HTML (images inlined, comments included, works offline) or as Markdown with front matter |
 | **Integrity report** | Per-record md5, footer magic, orphan comments, duplicate slugs, missing uploads, stale category counters — each with concrete ids |
 | **Two-way diff** | Give both a backup and a source archive and it lists, per primary key, what exists only on one side |
 | **Raw records** | For any record: field table, hex dump, md5 status — the page you want when writing your own parser |

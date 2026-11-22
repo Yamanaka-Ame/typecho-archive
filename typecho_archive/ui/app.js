@@ -460,6 +460,240 @@
     return `<div class="empty">${msg}</div>`;
   }
 
+  /* ----------------------------------------------------------- 单篇导出
+   * 在浏览界面里把当前文章存成独立文件。两种模式共用同一份实现：
+   * 服务端模式与静态报告都只是页面，生成与下载全在浏览器里完成。
+   */
+
+  const EXPORT_CSS = `
+* { box-sizing: border-box; }
+body { color-scheme: light; margin: 0; background: #f6f4ef; color: #23201b;
+  font: 16px/1.85 "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 780px; margin: 0 auto; padding: 52px 24px 72px; }
+h1 { font-size: 30px; line-height: 1.36; margin: 0 0 10px; letter-spacing: -.3px; }
+.meta { margin: 0 0 10px; font-size: 13px; color: #5a5349; }
+.chips { margin: 0 0 30px; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12px; padding: 1px 9px; border-radius: 999px;
+  background: #efece4; border: 1px solid #e2ddd1; color: #5a5349; }
+.prose { font-size: 15.5px; }
+.prose h1, .prose h2, .prose h3, .prose h4 { margin: 1.6em 0 .6em; line-height: 1.4; }
+.prose h2 { font-size: 1.28em; } .prose h3 { font-size: 1.1em; }
+.prose p { margin: 0 0 1.05em; }
+.prose a { color: #b45309; text-decoration: none; border-bottom: 1px solid rgba(180,83,9,.35); }
+.prose img { max-width: 100%; border-radius: 8px; display: block; margin: 1em 0; }
+.prose blockquote { margin: 1em 0; padding: .4em 1em; border-left: 3px solid #ddd7c9;
+  color: #5a5349; background: #efece4; border-radius: 0 6px 6px 0; }
+.prose code { font: .88em ui-monospace, Consolas, monospace; background: #efece4;
+  padding: .12em .38em; border-radius: 4px; border: 1px solid #ece8de; }
+.prose pre { background: #efece4; border: 1px solid #e2ddd1; border-radius: 8px;
+  padding: 12px 14px; overflow-x: auto; margin: 1em 0; }
+.prose pre code { background: none; border: 0; padding: 0; font-size: 13px; line-height: 1.7; }
+.prose table { border-collapse: collapse; margin: 1em 0; font-size: 14px; }
+.prose th, .prose td { border: 1px solid #e2ddd1; padding: 5px 10px; }
+.prose th { background: #efece4; }
+.prose hr { border: 0; border-top: 1px solid #e2ddd1; margin: 2em 0; }
+.prose ul, .prose ol { padding-left: 1.5em; margin: 0 0 1em; }
+.note { border: 1px solid #e2ddd1; border-left-width: 3px; border-radius: 8px;
+  padding: 9px 14px; margin: 1.2em 0; background: #efece4; }
+.note.warning { border-left-color: #a8641a; }
+.note.danger { border-left-color: #a33a34; }
+.note.info { border-left-color: #45688f; }
+.note-h { font-size: 12px; font-weight: 600; margin-bottom: 3px; color: #5a5349; }
+.note-b { font-size: 14px; color: #5a5349; }
+.spoiler { border: 1px dashed #ddd7c9; border-radius: 8px; padding: 10px 14px; background: #efece4; }
+.sp-body { margin-top: 8px; font-size: 13.5px; color: #5a5349; }
+.comments { margin-top: 56px; border-top: 1px solid #e2ddd1; padding-top: 24px; }
+.comments h2 { font-size: 16px; margin: 0 0 14px; }
+.cmt { border-top: 1px solid #ece8de; padding: 9px 0; }
+.cmt .h { display: flex; gap: 8px; align-items: baseline; font-size: 13px; color: #8b8377; }
+.cmt .h b { color: #23201b; }
+.cmt .x { margin-top: 3px; white-space: pre-wrap; color: #5a5349; font-size: 14px; }
+.cmt .kids { margin-left: 16px; padding-left: 12px; border-left: 1px solid #ece8de; }\n.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+footer { margin-top: 56px; padding-top: 14px; border-top: 1px solid #e2ddd1;
+  font-size: 12px; color: #8b8377; }
+body.dark { color-scheme: dark; background: #14130f; color: #ece7dc; }
+body.dark .meta, body.dark .cmt .x, body.dark .note-b, body.dark .sp-body { color: #b6ae9f; }
+body.dark .chip, body.dark .prose code, body.dark .prose pre,
+body.dark .prose th, body.dark .note, body.dark .spoiler { background: #1e1c18; border-color: #2e2b25; }
+body.dark .prose blockquote { background: #1b1a16; border-left-color: #2e2b25; }
+body.dark .prose th, body.dark .prose td, body.dark .cmt,
+body.dark .comments, body.dark footer { border-color: #2e2b25; }
+body.dark .cmt .h, body.dark footer { color: #847c6e; }
+body.dark .cmt .h b, body.dark .prose th { color: #ece7dc; }`;
+
+  function yamlScalar(value) {
+    if (value === null || value === undefined || value === '') return 'null';
+    if (typeof value === 'number') return String(value);
+    const text = String(value);
+    if (/^(null|true|false|yes|no|on|off|~)$/i.test(text) || /^[\d.+-]+$/.test(text)
+      || /[:#\[\]{}&*!|>'"%@`\n]/.test(text)) {
+      return JSON.stringify(text);
+    }
+    return text;
+  }
+
+  function yamlField(key, value) {
+    if (Array.isArray(value)) {
+      if (!value.length) return `${key}: []`;
+      return `${key}: ` + value.map(item => `\n  - ${yamlScalar(item)}`).join('');
+    }
+    return `${key}: ${yamlScalar(value)}`;
+  }
+
+  function articleBaseName(post) {
+    const slug = String(post.slug || post.cid)
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
+    const date = (post.createdText || '').slice(0, 10);
+    return date ? `${date}-${slug}` : slug;
+  }
+
+  function buildMarkdown(post) {
+    const lines = [
+      yamlField('title', post.title),
+      yamlField('cid', post.cid),
+      yamlField('slug', post.slug),
+      yamlField('type', post.type),
+      yamlField('status', post.status),
+      yamlField('date', post.createdText),
+      yamlField('modified', post.modifiedText),
+      yamlField('author', post.author),
+      yamlField('categories', post.categories.map(c => c.name)),
+      yamlField('tags', post.tags.map(t => t.name)),
+      yamlField('template', post.template),
+      yamlField('comments', post.commentsNum),
+      yamlField('word_count', post.chars),
+    ];
+    const body = String(post.text || '').replace(/^\s*<!--\s*markdown\s*-->\s*/i, '');
+    return '---\n' + lines.join('\n') + '\n---\n\n' + body + '\n';
+  }
+
+  async function inlineImages(root) {
+    const images = [...root.querySelectorAll('img')];
+    await Promise.all(images.map(async img => {
+      const src = img.getAttribute('src') || '';
+      if (!src || src.startsWith('data:')) return;
+      try {
+        const res = await fetch(src);
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (!blob.size || blob.size > 4 * 1024 * 1024) return;
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        img.setAttribute('src', dataUrl);
+      } catch {
+        /* 取不到就保留原地址 */
+      }
+    }));
+  }
+
+  function sourceLabel() {
+    const file = A.file || {};
+    return String(file.origin || file.path || '').split(/[\\/]/).pop() || '';
+  }
+
+  async function buildStandaloneHtml(post) {
+    const holder = document.createElement('div');
+    holder.innerHTML = renderBody(post);
+    await inlineImages(holder);
+
+    const comments = A.comments.filter(c => c.cid === post.cid);
+    const commentHtml = comments.length
+      ? `<section class="comments"><h2>评论 ${comments.length}</h2>${buildCommentTree(comments, false)}</section>`
+      : '';
+
+    const meta = [
+      post.createdText,
+      post.author ? `作者 ${post.author}` : '',
+      post.type === 'attachment' ? '' : `${nf(post.chars)} 字`,
+      post.typeLabel,
+    ].filter(Boolean).map(esc).join(' · ');
+
+    const chips = [...post.categories.map(c => c.name), ...post.tags.map(t => t.name)];
+    const chipsHtml = chips.length
+      ? `<p class="chips">${chips.map(name => `<span class="chip">${esc(name)}</span>`).join('')}</p>`
+      : '';
+
+    const stamp = new Date().toLocaleString('sv-SE').slice(0, 16);
+    // 导出的样子跟着当前界面走，而不是跟着系统偏好
+    const dark = document.documentElement.dataset.theme === 'dark';
+
+    return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(post.title)}</title>
+<style>${EXPORT_CSS}</style>
+</head>
+<body${dark ? ' class="dark"' : ''}>
+<article class="wrap">
+  <header>
+    <h1>${esc(post.title)}</h1>
+    <p class="meta">${meta}</p>
+    ${chipsHtml}
+  </header>
+  <div class="prose">${holder.innerHTML}</div>
+  ${commentHtml}
+  <footer>由 Typecho 归档台导出 · ${esc(sourceLabel())} · cid ${post.cid} · ${esc(stamp)}</footer>
+</article>
+</body>
+</html>`;
+  }
+
+  function saveBlob(name, text, mime) {
+    const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { URL.revokeObjectURL(url); link.remove(); }, 2000);
+  }
+
+  let toastTimer = null;
+  function toast(message) {
+    let node = document.getElementById('toast');
+    if (!node) {
+      node = document.createElement('div');
+      node.id = 'toast';
+      document.body.appendChild(node);
+    }
+    node.textContent = message;
+    node.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => node.classList.remove('show'), 2600);
+  }
+
+  async function downloadArticle(cid, format) {
+    const post = A.posts.find(x => x.cid === cid);
+    if (!post) { toast('找不到这篇文章'); return; }
+    const base = articleBaseName(post);
+    try {
+      if (format === 'md') {
+        saveBlob(`${base}.md`, buildMarkdown(post), 'text/markdown');
+        toast(`已保存 ${base}.md`);
+        return;
+      }
+      toast('正在打包图片…');
+      const html = await buildStandaloneHtml(post);
+      saveBlob(`${base}.html`, html, 'text/html');
+      const count = A.comments.filter(c => c.cid === cid).length;
+      toast(`已保存 ${base}.html${count ? `（含 ${count} 条评论）` : ''}`);
+    } catch (err) {
+      toast(`导出失败：${err.message}`);
+    }
+  }
+
   function detailPost(cid) {
     const p = A.posts.find(x => x.cid === cid);
     if (!p) return emptyDetail('内容不存在');
@@ -479,6 +713,11 @@
         ${badges(p)}
         ${p.hasPassword ? '<span class="badge priv">加密</span>' : ''}
         ${p.template ? `<span class="mono dim">${esc(p.template)}</span>` : ''}
+        ${p.type === 'attachment' ? '' : `<div class="a-actions">
+          <span class="dim">下载</span>
+          <button class="chip" data-dl="html" data-dlc="${p.cid}" title="保存为可独立打开的网页">HTML</button>
+          <button class="chip" data-dl="md" data-dlc="${p.cid}" title="保存为带 front matter 的 Markdown">Markdown</button>
+        </div>`}
       </div>
       ${(p.categories.length || p.tags.length) ? `<div class="a-chips">
         ${p.categories.map(c => `<span class="a-chip cat">${esc(c.name)}</span>`).join('')}
@@ -518,7 +757,7 @@
     </div>`;
   }
 
-  function buildCommentTree(list) {
+  function buildCommentTree(list, showIp = true) {
     const byParent = new Map();
     list.forEach(c => {
       const k = c.parent || 0;
@@ -530,7 +769,7 @@
         <div class="h"><b>${esc(c.author)}</b>
           <span>${esc(c.createdText)}</span>
           ${c.status !== 'approved' ? `<span class="badge hid">${esc(c.status)}</span>` : ''}
-          ${c.ip ? `<span class="mono" style="font-size:10px">${esc(c.ip)}</span>` : ''}
+          ${showIp && c.ip ? `<span class="mono" style="font-size:10px">${esc(c.ip)}</span>` : ''}
         </div>
         <div class="x">${esc(c.text)}</div>
         ${depth < 3 ? `<div class="kids">${walk(c.coid, depth + 1)}</div>` : ''}
@@ -1105,6 +1344,13 @@
       if (ftype) { S.ftype = ftype.dataset.ftype; S.sel = null; rerender(); return; }
       const fstatus = e.target.closest('[data-fstatus]');
       if (fstatus) { S.fstatus = fstatus.dataset.fstatus; S.sel = null; rerender(); return; }
+
+      const dl = e.target.closest('[data-dl]');
+      if (dl) {
+        e.preventDefault();
+        downloadArticle(Number(dl.dataset.dlc), dl.dataset.dl);
+        return;
+      }
 
       const cid = e.target.closest('[data-cid]');
       if (cid) { S.sel = Number(cid.dataset.cid); S.selScroll = true; rerender(); return; }
