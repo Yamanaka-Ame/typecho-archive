@@ -127,6 +127,75 @@ POSTS: list[tuple[str, str, str, list[str], int, str, str]] = [
     ("private-note", "私密：只有自己看得到", "notes", ["随笔"], 10, "private", _md(
         "这是一篇私密文章，前台不会出现。"
     )),
+
+    # ---- 以下是专门给渲染器出难题的样例 ----
+    # 它们能跑通，说明块边界、代码块优先级、缩进列表、行内 HTML 都还正常。
+    # tools/render_check.py 会用这些内容做回归。
+    ("stress-nested", "压力样例：缩进列表与嵌套引用", "notes", ["教程"], 12, "publish", _md(
+        "### 缩进 4 格的嵌套列表\n"
+        "- 一级条目\n"
+        "    - 二级条目（缩进 4 格，早期版本会在这里死循环）\n"
+        "        1. 三级有序条目\n"
+        "        2. 再来一条\n"
+        "    - 二级条目之二\n"
+        "- 一级条目之二\n\n"
+        "### 多层引用\n"
+        "> 第一层\n"
+        "> > 第二层\n"
+        "> > > 第三层，引用里还能放列表：\n"
+        "> > > - 引用内的列表项\n\n"
+        "### 行内 HTML\n"
+        "段落里可以写 <code>inline</code> 与 <span style=\"color:#c60;\">带颜色的字</span>，"
+        "这些应当作为行内元素渲染，而不是被当成块级 HTML 另起一段。\n"
+    )),
+    ("stress-component", "压力样例：围栏样式与跨空行的组件", "tutorial", ["前端"], 15, "publish", _md(
+        "样式写在开头的围栏里，后面的组件要用到它——这是真实文章里最常见的写法。\n\n"
+        "!!!\n"
+        "<style>\n"
+        "  .demo-card { border: 2px dashed #c60; padding: 12px; }\n"
+        "  .demo-card dt { font-weight: 700; }\n"
+        "  .demo-card dd { margin-left: 20px; }\n"
+        "  table { border-collapse: collapse; }\n"
+        "</style>\n"
+        "!!!\n\n"
+        "## 用到样式的组件\n"
+        '<div class="demo-card"><dl>\n\n'
+        "  <dt>第一项</dt>\n"
+        "  <dd>组件的 dl 中间夹着空行，早期版本会被切碎。</dd>\n\n"
+        "  <dt>第二项</dt>\n"
+        "  <dd>这一段应当完整地留在同一个块里。</dd>\n\n"
+        "</dl></div>\n\n"
+        "## 围栏里没有样式的情况\n"
+        "!!!\n"
+        '<div class="demo-card">这一块没有样式，只有内容。</div>\n'
+        "!!!\n"
+    )),
+    ("stress-code", "压力样例：代码块与竖线", "notes", ["教程", "Markdown"], 18, "publish", _md(
+        "代码块里的 HTML 和感叹号都必须是纯文本：\n\n"
+        "```html\n"
+        "<div class=\"toc-container\">\n"
+        "  <span>不该被当成组件</span>\n"
+        "</div>\n"
+        "！！！\n"
+        "```\n\n"
+        "表格里放行内代码：\n\n"
+        "| 写法 | 含义 |\n"
+        "|---|---|\n"
+        "| `a | b` | 竖线在代码里 |\n"
+        "| `!!!` | 三个感叹号 |\n\n"
+        "正文里出现一句带三个感叹号的话也是正常的：这个功能真好用!!!\n"
+    )),
+    ("stress-notes", "压力样例：提示块与遮罩", "notes", ["教程"], 21, "publish", _md(
+        "[note type=\"warning\"] 这是一条警告提示，里面有 **粗体** 和 `行内代码`。[/note]\n\n"
+        "[note type=\"danger\"] 这是危险提示。[/note]\n\n"
+        "[note type=\"info\"] 这是普通说明。[/note]\n\n"
+        "!!!\n"
+        "<!--SPOILER\n"
+        "这段内容默认折叠，点击后才展开。\n"
+        "-->\n"
+        "!!!\n\n"
+        "遮罩之后的正文应当照常渲染。\n"
+    )),
 ]
 
 # slug, 标题, 标签, 排序, 状态, 正文

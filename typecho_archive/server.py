@@ -95,6 +95,9 @@ class ArchiveServer:
     def shutdown(self) -> None:
         if self.httpd:
             self.httpd.shutdown()
+            # shutdown() 只是让 serve_forever 退出，监听套接字要单独关掉，
+            # 否则进程里会留一个没关闭的 socket（测试里会报 ResourceWarning）
+            self.httpd.server_close()
 
     @property
     def url(self) -> str:

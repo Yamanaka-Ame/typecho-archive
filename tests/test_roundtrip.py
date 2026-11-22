@@ -12,6 +12,10 @@ from pathlib import Path
 
 from typecho_archive import dat, demo, export, htmlreport
 from typecho_archive.sources import DbSource, detect_kind, guess_prefix
+
+# 期望值直接由演示数据推导，改了样例不会再漏改断言
+EXPECTED_CONTENTS = len(demo.POSTS) + len(demo.PAGES) + len(demo.ATTACHMENTS)
+EXPECTED_POSTS = len(demo.POSTS)
 from typecho_archive.store import Archive
 
 
@@ -35,7 +39,7 @@ class ArchiveTestCase(unittest.TestCase):
         self.assertEqual(len(doc.records), self.info["records"])
         self.assertTrue(doc.footer_ok)
         self.assertEqual(doc.md5_failures, [])
-        self.assertEqual(len(doc.of("contents")), 17)
+        self.assertEqual(len(doc.of("contents")), EXPECTED_CONTENTS)
         self.assertEqual(len(doc.of("comments")), 10)
 
     def test_roundtrip_is_byte_identical(self) -> None:
@@ -64,9 +68,9 @@ class ArchiveTestCase(unittest.TestCase):
     def test_archive_model(self) -> None:
         archive = Archive.open(self.dat_path)
         rows = archive.post_rows()
-        self.assertEqual(len(rows), 17)
+        self.assertEqual(len(rows), EXPECTED_CONTENTS)
         posts = [r for r in rows if r["type"] == "post"]
-        self.assertEqual(len(posts), 12)
+        self.assertEqual(len(posts), EXPECTED_POSTS)
         self.assertEqual(sum(1 for r in posts if r["status"] == "hidden"), 1)
         self.assertEqual(sum(1 for r in posts if r["status"] == "private"), 1)
 
@@ -85,7 +89,7 @@ class ArchiveTestCase(unittest.TestCase):
         payload = archive.payload()
         text = json.dumps(payload, ensure_ascii=False)
         self.assertGreater(len(text), 5000)
-        self.assertEqual(len(payload["posts"]), 17)
+        self.assertEqual(len(payload["posts"]), EXPECTED_CONTENTS)
         self.assertEqual(payload["file"]["kind"], "dat")
 
     def test_record_index_matches(self) -> None:
@@ -103,11 +107,11 @@ class ArchiveTestCase(unittest.TestCase):
         archive = Archive.open(self.dat_path)
         target = self.tmp / "rebuilt.db"
         result = export.export_sqlite(archive, target)
-        self.assertEqual(result["tables"]["contents"], 17)
+        self.assertEqual(result["tables"]["contents"], EXPECTED_CONTENTS)
 
         con = sqlite3.connect(target)
         try:
-            self.assertEqual(con.execute("select count(*) from typecho_contents").fetchone()[0], 17)
+            self.assertEqual(con.execute("select count(*) from typecho_contents").fetchone()[0], EXPECTED_CONTENTS)
             self.assertEqual(con.execute("select count(*) from typecho_comments").fetchone()[0], 10)
             self.assertEqual(con.execute("pragma integrity_check").fetchone()[0], "ok")
             # 导出的库可以被重新当成数据源读回来
@@ -119,7 +123,7 @@ class ArchiveTestCase(unittest.TestCase):
         archive = Archive.open(self.dat_path)
         out = self.tmp / "md"
         result = export.export_markdown(archive, out)
-        self.assertEqual(result["count"], 15)  # 12 篇文章 + 3 个页面
+        self.assertEqual(result["count"], EXPECTED_POSTS + len(demo.PAGES))
         self.assertTrue((out / "index.md").is_file())
 
     def test_static_report(self) -> None:

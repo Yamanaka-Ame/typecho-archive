@@ -73,6 +73,7 @@ class ProseProbe(HTMLParser):
         self.suspicious_text: list[str] = []
         self.styles: list[str] = []
         self.raw_blocks = 0
+        self.spoilers = 0
         self._in_style = False
         self._style_buf: list[str] = []
         self._title_tag: str | None = None
@@ -97,6 +98,8 @@ class ProseProbe(HTMLParser):
             return
         if not self.found_prose:
             return
+        if tag == "details" and "spoiler" in classes:
+            self.spoilers += 1
         if tag == "div" and "raw-block" in classes:
             self.raw_blocks += 1
         if tag == "style":
@@ -193,28 +196,23 @@ def check_one(browser: str, base: str, cid: int, profile: Path,
                 issues.append(f"样式未加作用域：{sel[:40]}")
                 break
     return {"cid": cid, "seconds": secs, "hang": False,
-            "issues": issues, "raw_blocks": probe.raw_blocks}
+            "issues": issues, "raw_blocks": probe.raw_blocks, "spoilers": probe.spoilers}
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="渲染自检：逐篇渲染并断言不变量")
-    ap.add_argument("dat", help="备份文件或源码包")
-    ap.add_argument("-s", "--source", help="站点源码包，可选")
-    ap.add_argument("-j", "--jobs", type=int, default=4, help="并发数，默认 4")
-    ap.add_argument("-n", "--limit", type=int, default=0, help="只查前 N 篇，0 表示全部")
-    ap.add_argument("--timeout", type=float, default=30.0, help="单篇超时秒数")
-    args = ap.parse_args(argv)
+def run_check(dat: str, source: str | None = None, *, jobs: int = 4, limit: int = 0,
+              timeout: float = 30.0, quiet: bool = False) -> tuple[list[dict], float, str]:
+    """跑一遍渲染自检，返回 (逐篇结果, 用时, 浏览器名)。
 
+    同时给命令行和自动化测试用；没有可用浏览器时抛 RuntimeError。
+    """
     browser = find_browser()
     if not browser:
-        print("找不到 Edge / Chrome，无法做渲染自检", file=sys.stderr)
-        return 2
+        raise RuntimeError("找不到 Edge / Chrome，无法做渲染自检")
 
-    archive = Archive.open(args.dat, args.source, verify=False)
+    archive = Archive.open(dat, source, verify=False)
     rows = [r for r in archive.post_rows(include_text=False) if r["type"] != "attachment"]
-    if args.limit:
-        rows = rows[: args.limit]
-    print(f"待检查 {len(rows)} 篇 · 浏览器 {Path(browser).name} · 并发 {args.jobs}")
+    if limit:
+        rows = rows[:limit]
 
     server = ArchiveServer(archive, port=0)
     server.start_background()
@@ -222,44 +220,69 @@ def main(argv: list[str] | None = None) -> int:
     tmp_root = Path(tempfile.mkdtemp(prefix="tarch_render_"))
     try:
         profiles = []
-        for i in range(args.jobs):
+        for i in range(max(1, jobs)):
             p = tmp_root / f"profile{i}"
             p.mkdir(parents=True, exist_ok=True)
             profiles.append(p)
 
-        results = []
+        results: list[dict] = []
         started = time.time()
-        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            futures = []
-            for idx, row in enumerate(rows):
-                futures.append(pool.submit(
-                    check_one, browser, base, row["cid"], profiles[idx % args.jobs], args.timeout))
+        with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+            futures = [
+                pool.submit(check_one, browser, base, row["cid"],
+                            profiles[idx % len(profiles)], timeout)
+                for idx, row in enumerate(rows)
+            ]
             for done, fut in enumerate(futures, 1):
                 results.append(fut.result())
-                if done % 20 == 0 or done == len(futures):
+                if not quiet and (done % 20 == 0 or done == len(futures)):
                     print(f"  {done}/{len(futures)} …", flush=True)
-        elapsed = time.time() - started
-
-        slow = sorted(results, key=lambda r: -r["seconds"])[:3]
-        bad = [r for r in results if r["issues"]]
-        no_block = [r for r in results
-                    if not r["issues"] and not r.get("hang") and r.get("raw_blocks", 0) == 0]
-
-        print()
-        print(f"用时 {elapsed:.0f}s · 平均 {elapsed / max(1, len(results)):.2f}s/篇")
-        print("最慢：" + " · ".join(f"cid={r['cid']} {r['seconds']:.1f}s" for r in slow))
-        if bad:
-            print(f"\n发现 {len(bad)} 篇有问题：")
-            for r in bad:
-                print(f"  cid={r['cid']}  {'; '.join(r['issues'])}")
-        else:
-            print("\n没有发现问题")
-        if no_block:
-            print(f"（另有 {len(no_block)} 篇没有组件块，属正常：正文里没有 !!! 围栏）")
-        return 1 if bad else 0
+        return results, time.time() - started, Path(browser).name
     finally:
         server.shutdown()
         shutil.rmtree(tmp_root, ignore_errors=True)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="渲染自检：逐篇渲染并断言不变量")
+    ap.add_argument("dat", help="备份文件或站点源码包；没有真实数据时可用 python -m typecho_archive demo 生成")
+    ap.add_argument("-s", "--source", help="站点源码包，可选")
+    ap.add_argument("-j", "--jobs", type=int, default=4, help="并发数，默认 4")
+    ap.add_argument("-n", "--limit", type=int, default=0, help="只查前 N 篇，0 表示全部")
+    ap.add_argument("--timeout", type=float, default=30.0, help="单篇超时秒数")
+    args = ap.parse_args(argv)
+
+    if not find_browser():
+        print("找不到 Edge / Chrome，无法做渲染自检", file=sys.stderr)
+        return 2
+
+    print(f"检查 {args.dat}（并发 {args.jobs}）")
+    try:
+        results, elapsed, browser_name = run_check(
+            args.dat, args.source, jobs=args.jobs, limit=args.limit, timeout=args.timeout)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    slow = sorted(results, key=lambda r: -r["seconds"])[:3]
+    bad = [r for r in results if r["issues"]]
+    no_block = [r for r in results
+                if not r["issues"] and not r.get("hang")
+                and r.get("raw_blocks", 0) == 0 and r.get("spoilers", 0) == 0]
+
+    print()
+    print(f"共 {len(results)} 篇 · {browser_name} · 用时 {elapsed:.0f}s"
+          f" · 平均 {elapsed / max(1, len(results)):.2f}s/篇")
+    print("最慢：" + " · ".join(f"cid={r['cid']} {r['seconds']:.1f}s" for r in slow))
+    if bad:
+        print(f"\n发现 {len(bad)} 篇有问题：")
+        for r in bad:
+            print(f"  cid={r['cid']}  {'; '.join(r['issues'])}")
+    else:
+        print("\n没有发现问题")
+    if no_block:
+        print(f"（另有 {len(no_block)} 篇没有组件块，属正常：正文里没有 !!! 围栏）")
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":

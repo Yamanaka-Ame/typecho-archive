@@ -104,6 +104,12 @@
    */
   let articleStyles = [];
 
+  /** 遮罩：默认折叠，点开才显示正文。Spoiler 插件的 <!--SPOILER … --> 与裸 !!! 都走这里。 */
+  function renderSpoiler(body) {
+    return `<details class="spoiler"><summary>内容提示 · 点击展开</summary>`
+      + `<div class="sp-body">${esc(body).replace(/\n/g, '<br>')}</div></details>`;
+  }
+
   const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
     'link', 'meta', 'param', 'source', 'track', 'wbr']);
 
@@ -124,6 +130,11 @@
 
   function renderRawBlock(html) {
     const text = String(html || '');
+    // 只有 <!--SPOILER … --> 的围栏（Spoiler 插件的标准写法）按遮罩渲染
+    const spoiler = text.match(/<!--\s*SPOILER([\s\S]*?)-->/i);
+    if (spoiler && !/<(?!\s*!--)[a-zA-Z]/.test(text.replace(spoiler[0], ''))) {
+      return renderSpoiler(spoiler[1].trim());
+    }
     if (!/<[a-zA-Z]/.test(text)) {
       return `<p>${inlineMd(text.trim()).replace(/\n/g, '<br>')}</p>`;
     }
@@ -226,8 +237,7 @@
         }
         i++;
         const body = buf.join('\n').trim();
-        out.push(`<details class="spoiler"><summary>内容提示 · 点击展开</summary>`
-          + `<div class="sp-body">${esc(body).replace(/\n/g, '<br>')}</div></details>`);
+        out.push(renderSpoiler(body));
         continue;
       }
 
